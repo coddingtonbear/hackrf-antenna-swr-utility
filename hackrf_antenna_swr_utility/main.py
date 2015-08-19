@@ -67,6 +67,7 @@ def get_antenna_statistics_osmocom(
             line = proc.stdout.readline()
 
             line = line.strip()
+            logger.debug(line)
             try:
                 # 2015-08-17 20:32:17.464280 center_freq 765000000.0\
                 #  freq 767993750.0 power_db 3.53722358601\
@@ -79,9 +80,10 @@ def get_antenna_statistics_osmocom(
                     _, noise_floor_db
                 ) = line.split(' ')
             except:
+                # The first few lines out will always be unusable
                 continue
 
-            if float(freq) < max_encountered_frequency:
+            if float(freq) <= max_encountered_frequency:
                 loop_cursor += 1
             else:
                 max_encountered_frequency = float(freq)
@@ -103,7 +105,7 @@ def get_antenna_statistics_osmocom(
 
 
 def get_antenna_statistics_rtl_power(
-    rtl_power_path, start_frequency, stop_frequency, loops=5
+    rtl_power_path, start_frequency, stop_frequency, loops=1
 ):
     logger.info(
         "Scanning power levels for %s to %s",
@@ -132,53 +134,41 @@ def get_antenna_statistics_rtl_power(
             line = proc.stdout.readline()
 
             line = line.strip()
-            try:
-                # 2015-08-17 20:32:17.464280 center_freq 765000000.0\
-                #  freq 767993750.0 power_db 3.53722358601\
-                #  noise_floor_db -75.9338252561
-                (
-                    date, time,
-                    freq,
-                    high_freq,
-                    _, _,
-                    power_1,
-                    power_2,
-                    power_3,
-                    power_4,
-                    power_5,
-                    power_6,
-                    power_7,
-                    power_8,
-                    power_9,
-                    power_10,
-                    power_11,
-                    power_12,
-                    power_13,
-                    power_14,
-                    power_15,
-                    power_16,
-                    power,
-                ) = line.split(',')
-            except:
-                continue
+            logger.debug(line)
 
-            if float(freq) < max_encountered_frequency:
-                loop_cursor += 1
-            else:
-                max_encountered_frequency = float(freq)
-
-            if loop_cursor >= loops:
-                logger.info(
-                    "Scanning completed."
-                )
-                proc.send_signal(signal.SIGINT)
+            if not line:
                 break
 
-            frequencies.setdefault(float(freq), [])\
-                .append(float(power))
+            try:
+                parts = line.split(',')
+                base_freq = float(parts[2])
+                interval = float(parts[4])
+                measurements = parts[6:]
+            except:
+                logger.exception(
+                    'Error encontered while parsing output: %s',
+                    line
+                )
+                continue
+
+            for idx, power in enumerate(measurements):
+                freq = base_freq + idx * interval
+                if freq <= max_encountered_frequency:
+                    loop_cursor += 1
+                else:
+                    max_encountered_frequency = freq
+
+                if loop_cursor >= loops:
+                    logger.info(
+                        "Scanning completed."
+                    )
+                    proc.send_signal(signal.SIGINT)
+                    break
+
+                frequencies.setdefault(float(freq), [])\
+                    .append(float(power))
     except KeyboardInterrupt:
         proc.send_signal(signal.SIGINT)
-        raise
 
     return frequencies
 
@@ -249,7 +239,6 @@ def analyze(common, extra):
             common,
             baseline_data['meta']['start_frequency'],
             baseline_data['meta']['stop_frequency'],
-            version=common.use_rtl_power
         )
         baseline = baseline_data['frequencies']
 
@@ -323,9 +312,13 @@ def cmdline(args=None):
         action='store_true',
         default=False,
     )
+    parser.add_argument(
+        '--loglevel',
+        default='INFO'
+    )
     args, extra = parser.parse_known_args(args)
 
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=getattr(logging, args.loglevel))
 
     COMMANDS[args.command](args, extra)
 
