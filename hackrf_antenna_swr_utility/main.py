@@ -130,43 +130,46 @@ def get_antenna_statistics_rtl_power(
         loop_cursor = 0
         max_encountered_frequency = 0
 
-        while True:
-            line = proc.stdout.readline()
+        try:
+            while True:
+                line = proc.stdout.readline()
 
-            line = line.strip()
-            logger.debug(line)
+                line = line.strip()
+                logger.debug(line)
 
-            if not line:
-                break
+                if not line:
+                    raise StopIteration()
 
-            try:
-                parts = line.split(',')
-                base_freq = float(parts[2])
-                interval = float(parts[4])
-                measurements = parts[6:]
-            except:
-                logger.exception(
-                    'Error encontered while parsing output: %s',
-                    line
-                )
-                continue
-
-            for idx, power in enumerate(measurements):
-                freq = base_freq + idx * interval
-                if freq <= max_encountered_frequency:
-                    loop_cursor += 1
-                else:
-                    max_encountered_frequency = freq
-
-                if loop_cursor >= loops:
-                    logger.info(
-                        "Scanning completed."
+                try:
+                    parts = line.split(',')
+                    base_freq = float(parts[2])
+                    interval = float(parts[4])
+                    measurements = parts[6:]
+                except:
+                    logger.exception(
+                        'Error encontered while parsing output: %s',
+                        line
                     )
-                    proc.send_signal(signal.SIGINT)
-                    break
+                    continue
 
-                frequencies.setdefault(float(freq), [])\
-                    .append(float(power))
+                for idx, power in enumerate(measurements):
+                    freq = base_freq + idx * interval
+                    if freq <= max_encountered_frequency:
+                        loop_cursor += 1
+                    else:
+                        max_encountered_frequency = freq
+
+                    if loop_cursor >= loops:
+                        logger.info(
+                            "Scanning completed."
+                        )
+                        proc.send_signal(signal.SIGINT)
+                        raise StopIteration()
+
+                    frequencies.setdefault(float(freq), [])\
+                        .append(float(power))
+        except StopIteration:
+            pass
     except KeyboardInterrupt:
         proc.send_signal(signal.SIGINT)
 
